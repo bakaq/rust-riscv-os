@@ -4,7 +4,7 @@
 .section .data
 
 .section .text.init
-.global
+.global _start
 _start:
     # Park all harts except the one with hartid = 0
     csrr t0, mhartid

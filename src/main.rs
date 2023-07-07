@@ -1,7 +1,12 @@
 #![no_main]
 #![no_std]
 
-use core::arch::asm;
+
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
+
+use core::arch::{asm, global_asm};
 
 macro_rules! print {
     ($($args:tt)+) => {{
@@ -19,6 +24,10 @@ macro_rules! println {
         print!(concat!($fmt, "\n"), $($args)+)
     }};
 }
+
+
+global_asm!(include_str!("asm/boot.s"));
+global_asm!(include_str!("asm/trap.s"));
 
 extern "C" fn eh_personality() {}
 
@@ -50,4 +59,6 @@ extern "C" fn abort() -> ! {
 }
 
 #[no_mangle]
-extern "C" fn kmain() { }
+extern "C" fn kmain() { 
+    let _ = 1 + 2;
+}
