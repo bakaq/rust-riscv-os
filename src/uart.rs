@@ -49,6 +49,15 @@ impl Uart {
         }
     }
 
+    pub fn get_blocking(&self) -> u8 {
+        // TODO: Wait for interrupts instead of pooling
+        loop {
+            if let Some(c) = self.get() {
+                break c;
+            }
+        }
+    }
+
     pub fn put(&self, c: u8) {
         // Safety: self.ptr points to a valid UART device
         unsafe {
