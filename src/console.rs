@@ -43,10 +43,7 @@ impl CsiEscapeSequence {
             current_char = chars.next().ok_or(())?;
         }
         
-        if 0x40 <= current_char as u8
-            && current_char as u8 <= 0x7F
-            && chars.next() == None
-        {
+        if (0x40..=0x7F).contains(&(current_char as u8)) && chars.next().is_none() {
             Ok(CsiEscapeSequence {
                 args,
                 function: current_char,
@@ -131,10 +128,8 @@ impl Console {
                     let mut buffer_idx = 2;
                     let mut current_char = self.uart.get_blocking();
                     loop {
-                        buffer[buffer_idx] = current_char as u8;
-                        if 0x40 <= current_char as u8
-                            && current_char as u8 <= 0x7F 
-                        {
+                        buffer[buffer_idx] = current_char;
+                        if (0x40..=0x7F).contains(&current_char) {
                             break;
                         }
 

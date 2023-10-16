@@ -6,7 +6,7 @@ macro_rules! print {
     ($($args:tt)+) => {{
         use core::fmt::Write;
         // Safety: This points to a valid UART device
-        let mut uart = unsafe { crate::uart::Uart::new(0x1000_0000) };
+        let mut uart = unsafe { $crate::uart::Uart::new(0x1000_0000) };
         let _ = write!(uart, $($args)+);
     }};
 }
