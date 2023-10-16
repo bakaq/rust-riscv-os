@@ -82,6 +82,10 @@ impl Console {
     fn prompt(&mut self) {
         use ConsoleCommand as CC;
 
+        let mut prompt_buffer = [0;4096];
+        let mut prompt_len: usize = 0;
+        let mut prompt_idx: usize = 0;
+
         print!("$ ");
         loop {
             match self.get_console_command() {
@@ -89,6 +93,56 @@ impl Console {
                     println!();
                     break;
                 },
+                CC::CsiEscape(CsiEscapeSequence {function: 'A' | 'B', ..}) => {}
+                CC::CsiEscape(CsiEscapeSequence {function: 'C', args: [n,_]}) => {
+                    let n = if n == 0 { 1 } else { n };
+                    prompt_idx = core::cmp::min(prompt_idx + (n as usize), prompt_len);
+                    print!("\x1b[{}G", prompt_idx + 3);
+                }
+                CC::CsiEscape(CsiEscapeSequence {function: 'D', args: [n,_]}) => {
+                    let n = if n == 0 { 1 } else { n };
+                    prompt_idx = prompt_idx.saturating_sub(n as usize);
+                    print!("\x1b[{}G", prompt_idx + 3);
+                }
+                CC::Character(c) => {
+                    let mut idx = prompt_idx;
+                    let mut current_char = c as u8;
+                    while idx <= prompt_len {
+                        let tmp = prompt_buffer[idx];
+                        prompt_buffer[idx] = current_char;
+                        current_char = tmp;
+                        idx += 1;
+                    }
+                    prompt_len += 1;
+                    print!(
+                        "{}",
+                        core::str::from_utf8(
+                            &prompt_buffer[prompt_idx..prompt_len]
+                        ).unwrap()
+                    );
+                    prompt_idx += 1;
+                    print!("\x1b[{}G", prompt_idx + 3);
+                }
+                CC::Backspace => {
+                    if prompt_idx != 0 {
+                        prompt_idx -= 1;
+                        let mut idx = prompt_idx;
+                        while idx < prompt_len - 1 {
+                            prompt_buffer[idx] = prompt_buffer[idx + 1];
+                            idx += 1;
+                        }
+                        prompt_len -= 1;
+                        print!("\x1b[{}G", prompt_idx + 3);
+                        print!(
+                            "{}",
+                            core::str::from_utf8(
+                                &prompt_buffer[prompt_idx..prompt_len]
+                            ).unwrap()
+                        );
+                        print!(" "); // Override last character
+                        print!("\x1b[{}G", prompt_idx + 3);
+                    }
+                }
                 CC::Byte(3) | CC::Byte(4) => { // Ctrl-C and Ctrl-D
                     println!();
                     crate::shutdown();
@@ -96,6 +150,7 @@ impl Console {
                 command => self.execute_console_command(command),
             }
         }
+        //execute_prompt(prompt_buffer[..prompt_len]);
     }
 
     fn execute_console_command(&mut self, command: ConsoleCommand) {
