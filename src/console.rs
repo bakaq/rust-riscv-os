@@ -1,24 +1,12 @@
 use crate::uart::Uart;
 
-pub struct Console {
-    cursor_line: usize,
-    cursor_col: usize,
-    command_buffer: Option<u8>,
-    uart: Uart,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConsoleCommand {
     Character(char),
     Backspace,
-    UpArrow,
-    RightArrow,
-    DownArrow,
-    LeftArrow,
-    CtrlC,
-    CtrlD,
     Esc,
-    UnknownEscape(u8),
+    CsiEscape(CsiEscapeSequence),
+    UnknownEscape,
     Byte(u8),
 }
 
@@ -67,13 +55,20 @@ impl CsiEscapeSequence {
             Err(())
         }
     }
+
+    fn print_ansi_escape(&self) {
+        print!("\x1b[{};{}{}", self.args[0], self.args[1], self.function);
+    }
+}
+
+pub struct Console {
+    command_buffer: Option<u8>,
+    uart: Uart,
 }
 
 impl Console {
     pub fn new(uart: Uart) -> Self {
         Self {
-            cursor_line: 1,
-            cursor_col: 1,
             command_buffer: None,
             uart,
         }
@@ -93,28 +88,32 @@ impl Console {
         print!("$ ");
         loop {
             match self.get_console_command() {
-                CC::Character(c) => print!("{c}"),
-                CC::Backspace => print!("{} {}", 8 as char, 8 as char),
-                CC::UpArrow => println!("Up arrow"),
-                CC::RightArrow => println!("Right arrow"),
-                CC::DownArrow => println!("Down arrow"),
-                CC::LeftArrow => println!("Right arrow"),
-                CC::CtrlC | CC::CtrlD => {
+                CC::Character('\n') => {
+                    println!();
+                    break;
+                },
+                CC::Byte(3) | CC::Byte(4) => { // Ctrl-C and Ctrl-D
                     println!();
                     crate::shutdown();
                 },
-                CC::Esc => println!("Esc"),
-                CC::Byte(b) => println!("Byte: {}", b),
-                CC::UnknownEscape(b) => println!("Unknown escape: {} {}", b, b as char),
+                command => self.execute_console_command(command),
             }
         }
+    }
+
+    fn execute_console_command(&mut self, command: ConsoleCommand) {
+        self.put_console_command(command);
     }
 
     fn put_console_command(&mut self, command: ConsoleCommand) {
         use ConsoleCommand as CC;
         match command {
-            CC::Character(c) => print!("{}", c),
-            _ => {}
+            CC::Character(c) => print!("{c}"),
+            CC::Backspace => print!("{} {}", 8 as char, 8 as char),
+            CC::Esc => println!("Esc"),
+            CC::Byte(b) => println!("Byte: {}", b),
+            CC::UnknownEscape => println!("Unknown escape"),
+            CC::CsiEscape(csi_escape) => csi_escape.print_ansi_escape(),
         }
     }
 
@@ -122,26 +121,40 @@ impl Console {
         use ConsoleCommand as CC;
 
         match self.command_buffer.take().unwrap_or_else(|| self.uart.get_blocking()) {
-            3 => CC::CtrlC,
-            4 => CC::CtrlD,
-            8 | 127 => CC::Backspace,
+            127 => CC::Backspace,
             0x1b => {
                 let bracket = self.uart.get_blocking();
                 if bracket == b'[' {
-                    match self.uart.get_blocking() {
-                        b'A' => CC::UpArrow,
-                        b'B' => CC::DownArrow,
-                        b'C' => CC::RightArrow,
-                        b'D' => CC::LeftArrow,
-                        0x1b => CC::Esc,
-                        b @ _ => CC::UnknownEscape(b),
+                    let mut buffer = [0;10];
+                    buffer[0] = 0x1b;
+                    buffer[1] = b'[';
+                    let mut buffer_idx = 2;
+                    let mut current_char = self.uart.get_blocking();
+                    loop {
+                        buffer[buffer_idx] = current_char as u8;
+                        if 0x40 <= current_char as u8
+                            && current_char as u8 <= 0x7F 
+                        {
+                            break;
+                        }
+
+                        buffer_idx += 1;
+                        current_char = self.uart.get_blocking();
+                    }
+
+                    match CsiEscapeSequence::from_ansi_escape(
+                            core::str::from_utf8(&buffer[..=buffer_idx]).unwrap()
+                        )
+                    {
+                        Ok(csi_escape) => CC::CsiEscape(csi_escape),
+                        Err(_) => CC::UnknownEscape,
                     }
                 } else {
                     self.command_buffer = Some(bracket);
                     CC::Esc
                 }
             }
-            c @ _ => {
+            c => {
                 if !c.is_ascii_control() {
                     CC::Character(c as char)
                 } else if c == b'\r' {
