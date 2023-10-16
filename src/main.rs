@@ -60,6 +60,7 @@ extern "C" fn kmain() {
     uart.init();
 
     println!("Hello world!");
+    println!("Press ] to shutdown.");
     
     loop {
         if let Some(c) = uart.get() {

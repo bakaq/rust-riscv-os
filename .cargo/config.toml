@@ -17,5 +17,5 @@ runner = """\
     -device virtio-net-device \
     -device virtio-tablet-device \
     -device virtio-keyboard-device \
-    -kernel \
+    -kernel
 """
